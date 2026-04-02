@@ -385,11 +385,19 @@ function renderCompras(c) {
 function renderCompraForm() {
   return `
     <div class="form-row">
-      <div class="form-group"><label>Produto</label>
-        <select class="form-control" id="c-prod" onchange="fillCompraPreco()">
-          <option value="">Selecione o produto...</option>
-          ${DB.produtos.map(p => `<option value="${p.id}" data-price="${p.precoCompra}">${p.nome} (stock: ${p.quantidade})</option>`).join('')}
-        </select>
+      <div class="form-group">
+        <label>Produto</label>
+        <div style="display:flex;gap:0.5rem;align-items:flex-end">
+          <select class="form-control" id="c-prod" onchange="fillCompraPreco()" style="flex:1">
+            <option value="">Selecione o produto...</option>
+            ${DB.produtos.map(p => `<option value="${p.id}" data-price="${p.precoCompra}" data-barcode="${p.barcode||''}">${p.nome} (stock: ${p.quantidade})</option>`).join('')}
+          </select>
+          <button type="button" class="scanner-btn" onclick="openBarcodeScanner()" title="Scanear código de barras">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9V5a2 2 0 0 1 2-2h4M3 15v4a2 2 0 0 0 2 2h4M21 9V5a2 2 0 0 0-2-2h-4M21 15v4a2 2 0 0 1-2 2h-4M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>
+            Scanear
+          </button>
+        </div>
+        <div id="scanner-found-info" style="display:none;margin-top:0.4rem;font-size:0.8rem;color:var(--accent)"></div>
       </div>
       <div class="form-group"><label>Fornecedor</label><input class="form-control" id="c-forn" list="forn-list" placeholder="Nome do fornecedor">
         <datalist id="forn-list">${DB.fornecedores.map(f => `<option>${f.nome}</option>`).join('')}</datalist>
@@ -866,6 +874,9 @@ function renderConfiguracoes(c) {
         <div class="theme-opt ${DB.config.tema==='theme-system'?'active':''}" onclick="applyTheme('theme-system');renderConfiguracoes(document.getElementById('page-content'))">
           <span class="theme-icon">⚙️</span> Tema do Sistema
         </div>
+        <div class="theme-opt ${DB.config.tema==='theme-orange'?'active':''}" onclick="applyTheme('theme-orange');renderConfiguracoes(document.getElementById('page-content'))">
+          <span class="theme-icon">🔥</span> Preto &amp; Laranja
+        </div>
       </div>
     </div>
     <div class="card" style="margin-bottom:1rem">
@@ -912,6 +923,138 @@ function resetData() {
   ['produtos','compras','vendas','clientes','fornecedores','faturas'].forEach(k => { DB[k] = []; saveDB(k); });
   showToast('Dados limpos', 'warn');
   navigate('dashboard');
+}
+
+// ===== BARCODE SCANNER =====
+let _scannerStream = null;
+let _scannerAnimFrame = null;
+let _scannerActive = false;
+
+function openBarcodeScanner() {
+  if (document.getElementById('scanner-modal-overlay')) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'scanner-modal-overlay';
+  overlay.id = 'scanner-modal-overlay';
+  overlay.innerHTML = `
+    <div class="scanner-modal">
+      <button class="scanner-close" onclick="closeBarcodeScanner()">✕</button>
+      <h3>📷 Scanear Código de Barras</h3>
+      <div class="scanner-video-wrap">
+        <video id="scanner-video" autoplay playsinline muted></video>
+        <div class="scanner-line"></div>
+        <div class="scanner-frame"></div>
+      </div>
+      <div class="scanner-status" id="scanner-status">A iniciar câmera...</div>
+      <div class="scanner-result" id="scanner-result"></div>
+      <div class="scanner-manual">
+        <input type="text" id="scanner-manual-input" placeholder="Ou introduza o código manualmente..." autocomplete="off"
+          onkeydown="if(event.key==='Enter')applyManualBarcode()">
+        <button class="btn-sm primary" onclick="applyManualBarcode()">✓</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  _scannerActive = true;
+  startCamera();
+}
+
+async function startCamera() {
+  const statusEl = document.getElementById('scanner-status');
+  try {
+    _scannerStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    const video = document.getElementById('scanner-video');
+    if (!video) return;
+    video.srcObject = _scannerStream;
+    await video.play();
+    statusEl.textContent = 'Aponte para o código de barras do produto...';
+
+    if ('BarcodeDetector' in window) {
+      const detector = new BarcodeDetector({ formats: ['ean_13','ean_8','code_128','code_39','qr_code','upc_a','upc_e','itf','codabar'] });
+      scanFrame(detector, video);
+    } else {
+      statusEl.textContent = 'Câmera activa. Use a introdução manual abaixo (browser sem suporte nativo).';
+    }
+  } catch (err) {
+    if (statusEl) {
+      if (err.name === 'NotAllowedError') {
+        statusEl.innerHTML = '❌ Permissão da câmera negada.<br><small>Use a introdução manual abaixo.</small>';
+      } else {
+        statusEl.innerHTML = '❌ Câmera não disponível.<br><small>Use a introdução manual abaixo.</small>';
+      }
+    }
+  }
+}
+
+function scanFrame(detector, video) {
+  if (!_scannerActive) return;
+  _scannerAnimFrame = requestAnimationFrame(async () => {
+    if (!_scannerActive || !document.getElementById('scanner-video')) return;
+    try {
+      const barcodes = await detector.detect(video);
+      if (barcodes.length > 0) {
+        const code = barcodes[0].rawValue;
+        handleScannedCode(code);
+        return;
+      }
+    } catch(e) {}
+    scanFrame(detector, video);
+  });
+}
+
+function handleScannedCode(code) {
+  const resultEl = document.getElementById('scanner-result');
+  const statusEl = document.getElementById('scanner-status');
+  if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = '✅ Código: ' + code; }
+  if (statusEl) statusEl.textContent = 'Código detectado! A procurar produto...';
+
+  // Vibration feedback
+  if (navigator.vibrate) navigator.vibrate(100);
+
+  // Find product by barcode
+  const prod = DB.produtos.find(p => p.barcode === code);
+  if (prod) {
+    applyScannedProduct(prod, code);
+  } else {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--warn)">⚠️ Código <strong>${code}</strong> não encontrado nos produtos.</span>`;
+    // Still close after 2s and put the barcode in manual input
+    const manualInput = document.getElementById('scanner-manual-input');
+    if (manualInput) manualInput.value = code;
+  }
+}
+
+function applyScannedProduct(prod, code) {
+  closeBarcodeScanner();
+  const sel = document.getElementById('c-prod');
+  if (sel) {
+    sel.value = prod.id;
+    fillCompraPreco();
+  }
+  const infoEl = document.getElementById('scanner-found-info');
+  if (infoEl) {
+    infoEl.style.display = 'block';
+    infoEl.innerHTML = `✅ Produto encontrado por código de barras: <strong>${prod.nome}</strong> — Código: <code>${code}</code>`;
+  }
+  showToast(`Produto "${prod.nome}" seleccionado por scanner!`, 'success');
+}
+
+function applyManualBarcode() {
+  const code = document.getElementById('scanner-manual-input')?.value?.trim();
+  if (!code) { showToast('Introduza um código de barras', 'error'); return; }
+  const prod = DB.produtos.find(p => p.barcode === code);
+  if (prod) {
+    applyScannedProduct(prod, code);
+  } else {
+    showToast(`Código "${code}" não encontrado nos produtos`, 'warn');
+  }
+}
+
+function closeBarcodeScanner() {
+  _scannerActive = false;
+  if (_scannerAnimFrame) { cancelAnimationFrame(_scannerAnimFrame); _scannerAnimFrame = null; }
+  if (_scannerStream) { _scannerStream.getTracks().forEach(t => t.stop()); _scannerStream = null; }
+  const overlay = document.getElementById('scanner-modal-overlay');
+  if (overlay) overlay.remove();
 }
 
 // ===== MYSQL SQL GENERATOR =====
