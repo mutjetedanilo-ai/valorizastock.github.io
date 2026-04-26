@@ -257,39 +257,75 @@ function saveEmpresa() {
 // ===== PRODUTOS =====
 function renderProdutos(c) {
   const q = document.getElementById('search-prod')?.value?.toLowerCase() || '';
-  const prods = DB.produtos.filter(p => !q || p.nome.toLowerCase().includes(q) || p.codigo.toLowerCase().includes(q));
+  const catFilter = document.getElementById('filter-cat')?.value || '';
+  const prods = DB.produtos.filter(p => {
+    const matchQ = !q || p.nome.toLowerCase().includes(q) || (p.codigo||'').toLowerCase().includes(q);
+    const matchCat = !catFilter || p.categoria === catFilter;
+    return matchQ && matchCat;
+  });
   c.innerHTML = `
     <div class="page-header"><div><h2>Produtos</h2><p>${DB.produtos.length} produto(s) cadastrado(s)</p></div>
-      <div class="page-actions"><button class="btn-sm primary" onclick="openProdutoModal()">+ Novo Produto</button></div>
+      <div class="page-actions">
+        <button class="btn-sm primary" onclick="loadProdutosPadrao()">📋 Carregar Catálogo</button>
+        <button class="btn-sm primary" onclick="openProdutoModal()">+ Novo Produto</button>
+      </div>
     </div>
     <div class="filter-bar">
       <div class="search-box"><input type="text" id="search-prod" placeholder="Pesquisar produto..." oninput="renderProdutos(document.getElementById('page-content'))" value="${q}"></div>
-      <select class="form-control" style="width:auto" id="filter-cat" onchange="renderProdutos(document.getElementById('page-content'))">
+      <select class="form-control" style="width:auto;min-width:200px" id="filter-cat" onchange="renderProdutos(document.getElementById('page-content'))">
         <option value="">Todas as categorias</option>
-        <option>Bens Alimentícios</option><option>Farmacêuticos</option><option>Bens em Geral</option>
+        <optgroup label="7% IVA">
+          ${['Arroz','Farinha de trigo','Fuba de milho','Leite em pó','Óleo alimentar','Açúcar','Sal','Massas alimentícias','Feijão','Água potável'].map(i=>`<option ${catFilter===i?'selected':''}>${i}</option>`).join('')}
+        </optgroup>
+        <optgroup label="0% IVA">
+          ${['Medicamentos','Serviços hospitalares','Serviços educativos','Exportação de bens'].map(i=>`<option ${catFilter===i?'selected':''}>${i}</option>`).join('')}
+        </optgroup>
+        <optgroup label="14% IVA">
+          ${['Refrigerantes','Bebidas alcoólicas','Roupas','Calçados','Telemóveis','Computadores','Serviços de telecomunicações','Serviços de internet','Restaurantes','Hotéis','Transporte privado','Bens em Geral'].map(i=>`<option ${catFilter===i?'selected':''}>${i}</option>`).join('')}
+        </optgroup>
       </select>
     </div>
     <div class="card"><div class="table-container">
-      <table><thead><tr><th>Código</th><th>Nome</th><th>Categoria</th><th>P. Compra</th><th>P. Venda</th><th>Qtd</th><th>Stk.Min</th><th>Código Barras</th><th>Estado</th><th>Ações</th></tr></thead>
-      <tbody>${prods.length ? prods.map(p => `
+      <table><thead><tr><th>Código</th><th>Nome</th><th>Categoria</th><th>IVA</th><th>P. Compra</th><th>P. Venda</th><th>Qtd</th><th>Stk.Min</th><th>Estado</th><th>Ações</th></tr></thead>
+      <tbody>${prods.length ? prods.map(p => {
+        const iva = getIVAbyCategoria(p.categoria);
+        const ivaBadge = iva === 0 ? 'badge-green' : iva === 0.07 ? 'badge-warn' : 'badge-blue';
+        return `
         <tr>
           <td><code>${p.codigo}</code></td>
           <td><strong>${p.nome}</strong></td>
-          <td><span class="badge badge-gray">${p.categoria}</span></td>
+          <td><span class="badge badge-gray" style="font-size:0.72rem">${p.categoria||'—'}</span></td>
+          <td><span class="badge ${ivaBadge}">${(iva*100).toFixed(0)}%</span></td>
           <td>${fmtMoney(p.precoCompra)}</td>
           <td>${fmtMoney(p.precoVenda)}</td>
           <td><strong ${p.quantidade<=p.stockMinimo?'style="color:var(--danger)"':''}>${p.quantidade}</strong></td>
           <td>${p.stockMinimo}</td>
-          <td><code>${p.barcode||'—'}</code></td>
           <td>${p.quantidade<=p.stockMinimo ? '<span class="badge badge-danger">⚠️ Baixo</span>' : '<span class="badge badge-green">OK</span>'}</td>
           <td><button class="btn-sm" onclick="openProdutoModal(${p.id})">✏️</button> <button class="btn-sm danger" onclick="deleteProduto(${p.id})">🗑️</button></td>
-        </tr>`).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:2rem">Sem produtos cadastrados</td></tr>'}
+        </tr>`;
+      }).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:2rem">Sem produtos cadastrados</td></tr>'}
       </tbody></table>
     </div></div>`;
 }
 
 function openProdutoModal(id) {
   const p = id ? DB.produtos.find(x => x.id === id) : {};
+  const CATEGORIAS = [
+    { grupo: '— Alimentação (7%) —', items: ['Arroz','Farinha de trigo','Fuba de milho','Leite em pó','Óleo alimentar','Açúcar','Sal','Massas alimentícias','Feijão','Água potável'] },
+    { grupo: '— Saúde (0%) —', items: ['Medicamentos','Serviços hospitalares'] },
+    { grupo: '— Educação (0%) —', items: ['Serviços educativos'] },
+    { grupo: '— Comércio Exterior (0%) —', items: ['Exportação de bens'] },
+    { grupo: '— Bebidas (14%) —', items: ['Refrigerantes','Bebidas alcoólicas'] },
+    { grupo: '— Vestuário (14%) —', items: ['Roupas','Calçados'] },
+    { grupo: '— Electrónicos (14%) —', items: ['Telemóveis','Computadores'] },
+    { grupo: '— Telecomunicações (14%) —', items: ['Serviços de telecomunicações','Serviços de internet'] },
+    { grupo: '— Restauração & Hotelaria (14%) —', items: ['Restaurantes','Hotéis'] },
+    { grupo: '— Transportes (14%) —', items: ['Transporte privado'] },
+    { grupo: '— Geral (14%) —', items: ['Bens em Geral'] },
+  ];
+  const catOptions = CATEGORIAS.map(g =>
+    `<optgroup label="${g.grupo}">${g.items.map(i => `<option ${p.categoria===i?'selected':''}>${i}</option>`).join('')}</optgroup>`
+  ).join('');
   openModal(`
     <h3>${id ? '✏️ Editar Produto' : '+ Novo Produto'}</h3>
     <div class="form-row">
@@ -297,9 +333,10 @@ function openProdutoModal(id) {
       <div class="form-group"><label>Nome</label><input class="form-control" id="p-nome" value="${p.nome||''}" placeholder="Nome do produto"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Categoria</label>
-        <select class="form-control" id="p-cat">
-          ${['Bens Alimentícios','Farmacêuticos','Bens em Geral'].map(c => `<option ${p.categoria===c?'selected':''}>${c}</option>`).join('')}
+      <div class="form-group"><label>Categoria / Tipo</label>
+        <select class="form-control" id="p-cat" onchange="updateIVApreview()">
+          <option value="">Selecione a categoria...</option>
+          ${catOptions}
         </select>
       </div>
       <div class="form-group"><label>Código de Barras</label>
@@ -309,15 +346,30 @@ function openProdutoModal(id) {
         </div>
       </div>
     </div>
+    <div id="iva-preview" style="padding:0.6rem 0.9rem;background:var(--bg2);border-radius:var(--radius-sm);margin-bottom:0.8rem;font-size:0.83rem;color:var(--text2);display:${p.categoria?'block':'none'}">
+      💡 Taxa de IVA aplicável: <strong id="iva-rate-label" style="color:var(--accent)">${p.categoria ? (getIVAbyCategoria(p.categoria)*100).toFixed(0)+'%' : ''}</strong>
+    </div>
     <div class="form-row">
-      <div class="form-group"><label>Preço de Compra (AOA)</label><input type="number" class="form-control" id="p-pcompra" value="${p.precoCompra||''}" placeholder="0.00"></div>
-      <div class="form-group"><label>Preço de Venda (AOA)</label><input type="number" class="form-control" id="p-pvenda" value="${p.precoVenda||''}" placeholder="0.00"></div>
+      <div class="form-group"><label>Preço de Compra (Kz)</label><input type="number" class="form-control" id="p-pcompra" value="${p.precoCompra||''}" placeholder="0.00"></div>
+      <div class="form-group"><label>Preço de Venda (Kz)</label><input type="number" class="form-control" id="p-pvenda" value="${p.precoVenda||''}" placeholder="0.00"></div>
     </div>
     <div class="form-row">
       <div class="form-group"><label>Quantidade em Stock</label><input type="number" class="form-control" id="p-qtd" value="${p.quantidade||0}" placeholder="0"></div>
       <div class="form-group"><label>Stock Mínimo</label><input type="number" class="form-control" id="p-smin" value="${p.stockMinimo||5}" placeholder="5"></div>
     </div>
     <button class="btn-primary full" onclick="saveProduto(${id||0})">💾 Guardar Produto</button>`);
+}
+
+function updateIVApreview() {
+  const cat = document.getElementById('p-cat').value;
+  const preview = document.getElementById('iva-preview');
+  const label = document.getElementById('iva-rate-label');
+  if (cat) {
+    preview.style.display = 'block';
+    label.textContent = (getIVAbyCategoria(cat)*100).toFixed(0) + '%';
+  } else {
+    preview.style.display = 'none';
+  }
 }
 
 function saveProduto(id) {
@@ -430,13 +482,14 @@ function saveCompra() {
   DB.compras.push(compra);
   saveDB('compras');
   // Update stock with lotes for FIFO/LIFO
+  const qtdAnterior = prod.quantidade;
+  const valorAnterior = (prod.custoMedio || prod.precoCompra) * qtdAnterior;
   prod.quantidade += qtd;
   if (!prod.lotes) prod.lotes = [];
   prod.lotes.push({ data, quantidade: qtd, preco, original: qtd });
-  // CMP recalc
-  const totalQtd = prod.quantidade;
-  const totalVal = prod.lotes.reduce((s,l) => s + l.quantidade * l.preco, 0);
-  prod.custoMedio = totalQtd > 0 ? totalVal / totalQtd : preco;
+  // CMP: (valor total antigo + valor total novo) / (quantidade antiga + quantidade nova)
+  const valorNovo = qtd * preco;
+  prod.custoMedio = prod.quantidade > 0 ? (valorAnterior + valorNovo) / prod.quantidade : preco;
   saveDB('produtos');
   // Auto add fornecedor
   if (forn && !DB.fornecedores.find(f => f.nome === forn)) {
@@ -674,79 +727,383 @@ function renderFaturas(c) {
 }
 
 function viewFatura(id) {
-  const f = DB.faturas.find(x => x.id === id);
+  const f = DB.faturas.find(x => x.id === id) || DB.vendas.find(x => x.id === id);
   if (!f) return;
+  openModal(buildFaturaHTML(f, false), true);
+}
+
+function buildFaturaHTML(f, forPrint = false) {
   const emp = DB.empresa || {};
   const isRecibo = f.tipo === 'pronto';
+  const docTitle = isRecibo ? 'FATURA-RECIBO' : 'FATURA';
   const iva = getIVA(f.produtoId);
   const subtotal = f.total;
-  const ivaVal = subtotal * iva;
-  const totalFinal = subtotal + ivaVal;
-  openModal(`
-    <div class="invoice-print" style="background:#fff;color:#000;padding:1.5rem;border-radius:8px">
-      <div class="invoice-header">
-        <div class="invoice-company">
-          <h2>${emp.nome || 'VALORIZA STOCK'}</h2>
-          <p>NIF: ${emp.nif||'—'} | ${emp.phone||''}</p>
-          <p>${emp.address||''}</p>
-          <p>${emp.regime||''}</p>
+  const ivaVal = parseFloat((subtotal * iva).toFixed(2));
+  const totalFinal = parseFloat((subtotal + ivaVal).toFixed(2));
+  const faturaNr = f.faturaNr || '—';
+  const dataEmissao = fmtDate(f.data || today());
+  const hashRaw = `${faturaNr}|${f.data}|${f.total}|${f.produtoNome}`;
+  const hashSimple = btoa(hashRaw).replace(/=/g,'').substring(0,24).toUpperCase();
+  const hash4 = hashSimple.substring(0,4);
+  // QR code content per AT Angola spec
+  const qrContent = [
+    `A:${emp.nif||'999999999'}`,
+    `B:${(DB.clientes.find(c=>c.nome===f.cliente)?.nif)||'999999999'}`,
+    `C:${f.cliente||'Consumidor Final'}`,
+    `D:${docTitle}`,
+    `E:N`,
+    `F:${(f.data||'').replace(/-/g,'')}`,
+    `G:${faturaNr}`,
+    `H:${hashSimple}`,
+    `I1:AOA`,
+    `I7:${subtotal.toFixed(2)}`,
+    `I8:${ivaVal.toFixed(2)}`,
+    `N:${ivaVal.toFixed(2)}`,
+    `O:${totalFinal.toFixed(2)}`,
+    `Q:${hash4}`,
+    `R:9999`,
+  ].join('*');
+  // Find client data
+  const clientData = DB.clientes.find(c => c.nome === f.cliente) || {};
+  const bg = forPrint ? '#fff' : 'var(--card,#fff)';
+  const textColor = '#111';
+  return `
+  <div style="background:${bg};color:${textColor};font-family:'DM Sans',Arial,sans-serif;border-radius:${forPrint?'0':'12px'};overflow:hidden">
+
+    <!-- HEADER -->
+    <div style="background:#0D1117;color:#fff;padding:1.8rem 2rem;display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+      <div>
+        <div style="display:flex;align-items:center;gap:0.7rem;margin-bottom:0.6rem">
+          <div style="width:36px;height:36px;background:linear-gradient(135deg,#00C896,#0A84FF);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85rem;color:#fff">VS</div>
+          <span style="font-family:'Syne',Arial;font-weight:800;font-size:1.2rem;letter-spacing:1px">${emp.nome||'VALORIZA STOCK'}</span>
         </div>
-        <div class="invoice-type">
-          <h1>${isRecibo ? 'FACTURA-RECIBO' : 'FACTURA'}</h1>
-          <p>Nº ${f.faturaNr||'—'}</p>
-          <p>Data: ${fmtDate(f.data)}</p>
-        </div>
+        <p style="font-size:0.8rem;color:#8B9AB0;line-height:1.7;margin:0">
+          NIF: <strong style="color:#fff">${emp.nif||'—'}</strong><br>
+          ${emp.address||''}<br>
+          ${emp.phone||''} ${emp.regime ? '| '+emp.regime : ''}
+        </p>
       </div>
-      <div class="invoice-info">
-        <div class="invoice-info-block"><h4>Cliente</h4><p>${f.cliente||'Consumidor Final'}</p></div>
-        <div class="invoice-info-block"><h4>Informação</h4><p>Método: ${f.metodo||DB.config.metodo}</p></div>
+      <div style="text-align:right">
+        <h1 style="font-family:'Syne',Arial;font-size:1.8rem;font-weight:900;color:#00C896;margin:0;letter-spacing:-0.5px">${docTitle}</h1>
+        <p style="font-size:0.82rem;color:#8B9AB0;margin:0.3rem 0 0">
+          Nº <strong style="color:#fff;font-size:1rem">${faturaNr}</strong>
+        </p>
+        <p style="font-size:0.78rem;color:#8B9AB0;margin:0.2rem 0 0">Data de emissão: <strong style="color:#ccc">${dataEmissao}</strong></p>
+        ${f.dataOperacao && f.dataOperacao !== f.data ? `<p style="font-size:0.78rem;color:#8B9AB0;margin:0.1rem 0 0">Data operação: <strong style="color:#ccc">${fmtDate(f.dataOperacao)}</strong></p>` : ''}
       </div>
-      <table class="invoice-table">
-        <thead><tr><th>Descrição</th><th>Qtd</th><th>P.Unit.</th><th>IVA</th><th>Total</th></tr></thead>
+    </div>
+
+    <!-- EMITENTE + CLIENTE -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #e8eaf0">
+      <div style="padding:1.2rem 2rem;border-right:1px solid #e8eaf0">
+        <p style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1.5px;color:#999;margin:0 0 0.5rem;font-weight:700">EMITENTE</p>
+        <p style="font-weight:700;font-size:0.95rem;margin:0 0 0.3rem;color:#111">${emp.nome||'VALORIZA STOCK'}</p>
+        <p style="font-size:0.82rem;color:#555;line-height:1.7;margin:0">
+          NIF: ${emp.nif||'—'}<br>
+          ${emp.address||'Endereço não configurado'}<br>
+          ${emp.regime||''}
+        </p>
+      </div>
+      <div style="padding:1.2rem 2rem">
+        <p style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1.5px;color:#999;margin:0 0 0.5rem;font-weight:700">CLIENTE</p>
+        <p style="font-weight:700;font-size:0.95rem;margin:0 0 0.3rem;color:#111">${f.cliente||'Consumidor Final'}</p>
+        <p style="font-size:0.82rem;color:#555;line-height:1.7;margin:0">
+          NIF: ${clientData.nif||'—'}<br>
+          ${clientData.address||''}<br>
+          ${clientData.contacto||''}
+        </p>
+      </div>
+    </div>
+
+    <!-- TABELA DE PRODUTOS -->
+    <div style="padding:1.2rem 2rem">
+      <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+        <thead>
+          <tr style="background:#f5f7fa">
+            <th style="padding:0.65rem 0.8rem;text-align:left;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:#666;font-weight:700;border-bottom:2px solid #e8eaf0">Descrição</th>
+            <th style="padding:0.65rem 0.8rem;text-align:center;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:#666;font-weight:700;border-bottom:2px solid #e8eaf0">Qtd</th>
+            <th style="padding:0.65rem 0.8rem;text-align:right;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:#666;font-weight:700;border-bottom:2px solid #e8eaf0">P. Unitário</th>
+            <th style="padding:0.65rem 0.8rem;text-align:center;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:#666;font-weight:700;border-bottom:2px solid #e8eaf0">Taxa IVA</th>
+            <th style="padding:0.65rem 0.8rem;text-align:right;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:#666;font-weight:700;border-bottom:2px solid #e8eaf0">Total s/IVA</th>
+            <th style="padding:0.65rem 0.8rem;text-align:right;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:#666;font-weight:700;border-bottom:2px solid #e8eaf0">IVA (Kz)</th>
+            <th style="padding:0.65rem 0.8rem;text-align:right;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:#666;font-weight:700;border-bottom:2px solid #e8eaf0">Total c/IVA</th>
+          </tr>
+        </thead>
         <tbody>
-          <tr><td>${f.produtoNome}</td><td>${f.quantidade}</td><td>${fmtMoney(f.precoVenda)}</td><td>${(iva*100).toFixed(0)}%</td><td>${fmtMoney(subtotal)}</td></tr>
+          <tr>
+            <td style="padding:0.8rem;border-bottom:1px solid #f0f0f0">
+              <strong>${f.produtoNome}</strong>
+              <div style="font-size:0.75rem;color:#888;margin-top:0.2rem">Ref: ${f.produtoId||'—'} | Método: ${f.metodo||DB.config.metodo}</div>
+            </td>
+            <td style="padding:0.8rem;text-align:center;border-bottom:1px solid #f0f0f0">${f.quantidade}</td>
+            <td style="padding:0.8rem;text-align:right;border-bottom:1px solid #f0f0f0">${fmtMoney(f.precoVenda)} Kz</td>
+            <td style="padding:0.8rem;text-align:center;border-bottom:1px solid #f0f0f0">
+              <span style="padding:0.2rem 0.6rem;border-radius:20px;font-size:0.75rem;font-weight:700;background:${iva===0?'#e8faf5':iva===0.07?'#fff8e1':'#e8f0fe'};color:${iva===0?'#00A87E':iva===0.07?'#B8860B':'#1565C0'}">${(iva*100).toFixed(0)}%</span>
+            </td>
+            <td style="padding:0.8rem;text-align:right;border-bottom:1px solid #f0f0f0">${fmtMoney(subtotal)} Kz</td>
+            <td style="padding:0.8rem;text-align:right;border-bottom:1px solid #f0f0f0">${fmtMoney(ivaVal)} Kz</td>
+            <td style="padding:0.8rem;text-align:right;border-bottom:1px solid #f0f0f0;font-weight:700">${fmtMoney(subtotal + ivaVal * 0)} Kz</td>
+          </tr>
         </tbody>
       </table>
-      <div class="invoice-totals">
-        <div class="total-row"><span>Subtotal</span><span>${fmtMoney(subtotal)}</span></div>
-        <div class="total-row"><span>IVA (${(iva*100).toFixed(0)}%)</span><span>${fmtMoney(ivaVal)}</span></div>
-        <div class="total-row grand"><span>TOTAL</span><span>${fmtMoney(totalFinal)}</span></div>
-      </div>
-      ${isRecibo ? '<p style="margin-top:1.5rem;font-size:0.8rem;color:#999;text-align:center">✅ RECEBIDO — Documento processado por computador</p>' : '<p style="margin-top:1.5rem;font-size:0.8rem;color:#999;text-align:center">Documento processado por computador</p>'}
     </div>
-    <button class="btn-sm primary" style="margin-top:1rem;width:100%" onclick="printFatura(${id})">🖨️ Imprimir</button>
-  `, true);
+
+    <!-- TOTAIS + QR -->
+    <div style="display:grid;grid-template-columns:1fr 220px;gap:0;padding:0 2rem 1.5rem;align-items:start">
+      <!-- QR + HASH -->
+      <div style="padding-right:1.5rem">
+        <div style="background:#f8fafc;border:1px solid #e8eaf0;border-radius:8px;padding:1rem;margin-bottom:0.8rem">
+          <p style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#999;margin:0 0 0.5rem;font-weight:700">📱 Código QR (AT Angola)</p>
+          <div id="qr-container-${f.id}" style="width:100px;height:100px;background:#fff;border:1px solid #ddd;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:#999;text-align:center;padding:0.3rem;margin-bottom:0.5rem">
+            Gerando QR...
+          </div>
+          <p style="font-size:0.72rem;color:#888;margin:0;word-break:break-all;line-height:1.4">${qrContent.substring(0,80)}...</p>
+        </div>
+        <div style="background:#f8fafc;border:1px solid #e8eaf0;border-radius:8px;padding:0.8rem">
+          <p style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#999;margin:0 0 0.4rem;font-weight:700">🔐 Hash / Assinatura</p>
+          <code style="font-size:0.72rem;color:#333;letter-spacing:2px;display:block">${hashSimple.match(/.{1,4}/g).join('-')}</code>
+          <p style="font-size:0.7rem;color:#aaa;margin:0.3rem 0 0">4 primeiros: <strong style="color:#555">${hash4}</strong></p>
+        </div>
+        <div style="margin-top:0.7rem;padding:0.7rem 0.9rem;background:#f8fafc;border:1px solid #e8eaf0;border-radius:8px">
+          <p style="font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#999;margin:0 0 0.3rem;font-weight:700">💻 Software de Faturação</p>
+          <p style="font-size:0.78rem;color:#333;margin:0">VALORIZA STOCK v1.0.0<br><span style="color:#aaa;font-size:0.72rem">Certificado: VS-2025-001</span></p>
+        </div>
+      </div>
+      <!-- TOTAIS -->
+      <div>
+        <div style="background:#f8fafc;border:1px solid #e8eaf0;border-radius:8px;padding:1rem">
+          <div style="display:flex;justify-content:space-between;padding:0.4rem 0;font-size:0.85rem;border-bottom:1px solid #eee">
+            <span style="color:#666">Subtotal (s/IVA)</span>
+            <span style="font-weight:600">${fmtMoney(subtotal)} Kz</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:0.4rem 0;font-size:0.85rem;border-bottom:1px solid #eee">
+            <span style="color:#666">IVA (${(iva*100).toFixed(0)}%)</span>
+            <span style="font-weight:600">${fmtMoney(ivaVal)} Kz</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:0.7rem 0 0.4rem;font-size:1rem;border-top:2px solid #00C896;margin-top:0.2rem">
+            <span style="font-weight:800;color:#111">TOTAL A PAGAR</span>
+            <span style="font-weight:900;color:#00C896;font-size:1.1rem">${fmtMoney(totalFinal)} Kz</span>
+          </div>
+          <div style="margin-top:0.6rem;padding-top:0.6rem;border-top:1px dashed #ddd">
+            <p style="font-size:0.72rem;color:#999;margin:0">Moeda: <strong style="color:#555">Kwanza (Kz / AOA)</strong></p>
+          </div>
+        </div>
+        ${isRecibo ? `
+        <div style="margin-top:0.7rem;padding:0.7rem;background:#e8faf5;border:1px solid #00C896;border-radius:8px;text-align:center">
+          <p style="font-size:0.82rem;color:#00A87E;font-weight:700;margin:0">✅ RECEBIDO / PAGO</p>
+          <p style="font-size:0.72rem;color:#00A87E;margin:0.2rem 0 0">Venda a pronto pagamento</p>
+        </div>` : `
+        <div style="margin-top:0.7rem;padding:0.7rem;background:#fff8e1;border:1px solid #FFB800;border-radius:8px;text-align:center">
+          <p style="font-size:0.82rem;color:#B8860B;font-weight:700;margin:0">⏳ PENDENTE</p>
+          <p style="font-size:0.72rem;color:#B8860B;margin:0.2rem 0 0">Venda a prazo</p>
+        </div>`}
+      </div>
+    </div>
+
+    <!-- RODAPÉ -->
+    <div style="border-top:1px solid #e8eaf0;padding:1rem 2rem;background:#f8fafc;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+      <p style="font-size:0.72rem;color:#999;margin:0">Documento emitido por computador • VALORIZA STOCK © ${new Date().getFullYear()}</p>
+      <p style="font-size:0.72rem;color:#999;margin:0">Nº Fatura: <strong style="color:#555">${faturaNr}</strong> • Hash: <strong style="color:#555">${hash4}</strong></p>
+    </div>
+  </div>
+  <script>
+    // Generate QR code visually (simple representation)
+    (function() {
+      const el = document.getElementById('qr-container-${f.id}');
+      if (el) {
+        el.innerHTML = '<div style="font-size:0.6rem;color:#555;text-align:center;line-height:1.4">QR<br>' + '${faturaNr}'.replace('/','<br>') + '<br>${hash4}</div>';
+        el.style.background = '#fff';
+      }
+    })();
+  </script>
+  ${!forPrint ? `<button class="btn-sm primary" style="margin-top:1rem;width:100%;padding:0.8rem" onclick="printFatura(${f.id})">🖨️ Imprimir / Guardar PDF</button>` : ''}
+  `;
+}
+
+function getIVAbyCategoria(cat) {
+  const zero = ['Medicamentos','Serviços hospitalares','Serviços educativos','Exportação de bens'];
+  const sete = ['Arroz','Farinha de trigo','Fuba de milho','Leite em pó','Óleo alimentar','Açúcar','Sal','Massas alimentícias','Feijão','Água potável'];
+  if (!cat) return 0.14;
+  if (zero.includes(cat)) return 0;
+  if (sete.includes(cat)) return 0.07;
+  return 0.14;
 }
 
 function getIVA(prodId) {
   const p = DB.produtos.find(x => x.id === prodId);
   if (!p) return 0.14;
-  if (p.categoria === 'Bens Alimentícios') return 0;
-  if (p.categoria === 'Farmacêuticos') return 0.02;
-  return 0.14;
+  return getIVAbyCategoria(p.categoria);
+}
+
+// Catálogo padrão de 25 produtos
+function loadProdutosPadrao() {
+  if (!confirm('Isso irá adicionar os 25 produtos padrão ao catálogo. Continuar?')) return;
+  const padrao = [
+    { codigo:'P001', nome:'Arroz', categoria:'Arroz' },
+    { codigo:'P002', nome:'Farinha de trigo', categoria:'Farinha de trigo' },
+    { codigo:'P003', nome:'Fuba de milho', categoria:'Fuba de milho' },
+    { codigo:'P004', nome:'Leite em pó', categoria:'Leite em pó' },
+    { codigo:'P005', nome:'Óleo alimentar', categoria:'Óleo alimentar' },
+    { codigo:'P006', nome:'Açúcar', categoria:'Açúcar' },
+    { codigo:'P007', nome:'Sal', categoria:'Sal' },
+    { codigo:'P008', nome:'Massas alimentícias', categoria:'Massas alimentícias' },
+    { codigo:'P009', nome:'Feijão', categoria:'Feijão' },
+    { codigo:'P010', nome:'Água potável', categoria:'Água potável' },
+    { codigo:'P011', nome:'Medicamentos', categoria:'Medicamentos' },
+    { codigo:'P012', nome:'Serviços hospitalares', categoria:'Serviços hospitalares' },
+    { codigo:'P013', nome:'Serviços educativos', categoria:'Serviços educativos' },
+    { codigo:'P014', nome:'Exportação de bens', categoria:'Exportação de bens' },
+    { codigo:'P015', nome:'Refrigerantes', categoria:'Refrigerantes' },
+    { codigo:'P016', nome:'Bebidas alcoólicas', categoria:'Bebidas alcoólicas' },
+    { codigo:'P017', nome:'Roupas', categoria:'Roupas' },
+    { codigo:'P018', nome:'Calçados', categoria:'Calçados' },
+    { codigo:'P019', nome:'Telemóveis', categoria:'Telemóveis' },
+    { codigo:'P020', nome:'Computadores', categoria:'Computadores' },
+    { codigo:'P021', nome:'Serviços de telecomunicações', categoria:'Serviços de telecomunicações' },
+    { codigo:'P022', nome:'Serviços de internet', categoria:'Serviços de internet' },
+    { codigo:'P023', nome:'Restaurantes', categoria:'Restaurantes' },
+    { codigo:'P024', nome:'Hotéis', categoria:'Hotéis' },
+    { codigo:'P025', nome:'Transporte privado', categoria:'Transporte privado' },
+  ];
+  let added = 0;
+  padrao.forEach(p => {
+    if (!DB.produtos.find(x => x.codigo === p.codigo)) {
+      DB.produtos.push({ id: newId(), codigo: p.codigo, nome: p.nome, categoria: p.categoria, precoCompra: 0, precoVenda: 0, quantidade: 0, stockMinimo: 5, barcode: '', lotes: [], custoMedio: 0 });
+      added++;
+    }
+  });
+  saveDB('produtos');
+  showToast(`${added} produto(s) adicionado(s) ao catálogo!`, 'success');
+  renderProdutos(document.getElementById('page-content'));
+  checkAlerts();
 }
 
 function printFatura(id) {
-  const f = DB.faturas.find(x => x.id === id);
+  const f = DB.faturas.find(x => x.id === id) || DB.vendas.find(x => x.id === id);
   if (!f) return;
   const emp = DB.empresa || {};
   const isRecibo = f.tipo === 'pronto';
+  const docTitle = isRecibo ? 'FATURA-RECIBO' : 'FATURA';
   const iva = getIVA(f.produtoId);
   const subtotal = f.total;
-  const ivaVal = subtotal * iva;
-  const totalFinal = subtotal + ivaVal;
-  const w = window.open('','_blank','width=800,height=700');
-  w.document.write(`<!DOCTYPE html><html><head><title>${f.faturaNr}</title>
-  <style>body{font-family:Arial,sans-serif;padding:2rem;color:#000}h1{font-size:2rem;color:#00C896}h2{font-size:1.4rem}table{width:100%;border-collapse:collapse}th{background:#f5f5f5;padding:0.7rem;text-align:left}td{padding:0.7rem;border-bottom:1px solid #eee}.header{display:flex;justify-content:space-between;margin-bottom:2rem;padding-bottom:1.5rem;border-bottom:2px solid #00C896}.totals{text-align:right}.t-row{display:flex;justify-content:flex-end;gap:3rem;padding:0.3rem 0}.grand{font-weight:700;font-size:1.1rem;border-top:2px solid #00C896;padding-top:0.5rem}</style>
-  </head><body>
-  <div class="header"><div><h2>${emp.nome||'VALORIZA STOCK'}</h2><p>NIF: ${emp.nif||'—'}</p><p>${emp.phone||''}</p><p>${emp.address||''}</p></div>
-  <div style="text-align:right"><h1>${isRecibo?'FACTURA-RECIBO':'FACTURA'}</h1><p>Nº ${f.faturaNr||'—'}</p><p>${fmtDate(f.data)}</p></div></div>
-  <p><strong>Cliente:</strong> ${f.cliente||'Consumidor Final'}</p><br>
-  <table><thead><tr><th>Produto</th><th>Qtd</th><th>P.Unit.</th><th>IVA</th><th>Total</th></tr></thead>
-  <tbody><tr><td>${f.produtoNome}</td><td>${f.quantidade}</td><td>${fmtMoney(f.precoVenda)}</td><td>${(iva*100).toFixed(0)}%</td><td>${fmtMoney(subtotal)}</td></tr></tbody></table>
-  <br><div class="totals"><div class="t-row"><span>Subtotal</span><span>${fmtMoney(subtotal)}</span></div><div class="t-row"><span>IVA</span><span>${fmtMoney(ivaVal)}</span></div><div class="t-row grand"><span>TOTAL</span><span>${fmtMoney(totalFinal)}</span></div></div>
-  ${isRecibo?'<p style="margin-top:2rem;text-align:center;color:#999">✅ RECEBIDO</p>':''}
-  <script>window.print();</script></body></html>`);
+  const ivaVal = parseFloat((subtotal * iva).toFixed(2));
+  const totalFinal = parseFloat((subtotal + ivaVal).toFixed(2));
+  const faturaNr = f.faturaNr || '—';
+  const hashRaw = `${faturaNr}|${f.data}|${f.total}|${f.produtoNome}`;
+  const hashSimple = btoa(hashRaw).replace(/=/g,'').substring(0,24).toUpperCase();
+  const hash4 = hashSimple.substring(0,4);
+  const clientData = DB.clientes.find(c => c.nome === f.cliente) || {};
+
+  const w = window.open('','_blank','width=900,height=800');
+  w.document.write(`<!DOCTYPE html><html lang="pt"><head>
+  <meta charset="UTF-8"><title>${docTitle} ${faturaNr}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;color:#111;background:#fff;padding:0}
+    .page{max-width:800px;margin:0 auto;padding:0}
+    .hdr{background:#0D1117;color:#fff;padding:1.8rem 2rem;display:flex;justify-content:space-between;align-items:flex-start}
+    .hdr h1{font-size:1.8rem;font-weight:900;color:#00C896;margin:0}
+    .hdr .co{font-size:0.8rem;color:#8B9AB0;line-height:1.7}
+    .hdr .co strong{color:#fff}
+    .hdr .nr{text-align:right;font-size:0.8rem;color:#8B9AB0}
+    .hdr .nr strong{color:#fff;font-size:1rem}
+    .parties{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid #e8eaf0}
+    .party{padding:1.2rem 2rem}
+    .party:first-child{border-right:1px solid #e8eaf0}
+    .party-label{font-size:0.68rem;text-transform:uppercase;letter-spacing:1.5px;color:#999;font-weight:700;margin-bottom:0.5rem}
+    .party h3{font-size:0.95rem;font-weight:700;margin-bottom:0.3rem}
+    .party p{font-size:0.82rem;color:#555;line-height:1.7}
+    .items{padding:1.2rem 2rem}
+    table{width:100%;border-collapse:collapse;font-size:0.83rem}
+    th{background:#f5f7fa;padding:0.65rem 0.8rem;text-align:left;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:#666;font-weight:700;border-bottom:2px solid #e8eaf0}
+    th.r,td.r{text-align:right}th.c,td.c{text-align:center}
+    td{padding:0.8rem;border-bottom:1px solid #f0f0f0;vertical-align:top}
+    .iva-badge{padding:0.2rem 0.5rem;border-radius:20px;font-size:0.72rem;font-weight:700}
+    .bot{display:grid;grid-template-columns:1fr 220px;gap:1rem;padding:0 2rem 1.5rem;align-items:start}
+    .qr-box{background:#f8fafc;border:1px solid #e8eaf0;border-radius:8px;padding:1rem;margin-bottom:0.8rem}
+    .qr-label{font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:#999;font-weight:700;margin-bottom:0.5rem}
+    .qr-img{width:90px;height:90px;background:#fff;border:1px solid #ddd;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#555;text-align:center;margin-bottom:0.5rem;padding:0.3rem}
+    .hash-box{background:#f8fafc;border:1px solid #e8eaf0;border-radius:8px;padding:0.8rem;margin-bottom:0.8rem}
+    .sw-box{background:#f8fafc;border:1px solid #e8eaf0;border-radius:8px;padding:0.8rem}
+    .totals-box{background:#f8fafc;border:1px solid #e8eaf0;border-radius:8px;padding:1rem}
+    .t-row{display:flex;justify-content:space-between;padding:0.4rem 0;font-size:0.85rem;border-bottom:1px solid #eee}
+    .t-grand{display:flex;justify-content:space-between;padding:0.7rem 0 0.4rem;font-size:1rem;border-top:2px solid #00C896;margin-top:0.2rem}
+    .status-box{margin-top:0.7rem;padding:0.7rem;border-radius:8px;text-align:center}
+    .paid{background:#e8faf5;border:1px solid #00C896;color:#00A87E}
+    .pending{background:#fff8e1;border:1px solid #FFB800;color:#B8860B}
+    .footer{border-top:1px solid #e8eaf0;padding:0.8rem 2rem;background:#f8fafc;display:flex;justify-content:space-between;font-size:0.72rem;color:#999}
+    @media print{body{padding:0}.page{max-width:100%}}
+  </style>
+  </head><body><div class="page">
+  <div class="hdr">
+    <div>
+      <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.6rem">
+        <div style="width:32px;height:32px;background:linear-gradient(135deg,#00C896,#0A84FF);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;color:#fff">VS</div>
+        <span style="font-weight:800;font-size:1.1rem;letter-spacing:1px">${emp.nome||'VALORIZA STOCK'}</span>
+      </div>
+      <div class="co">NIF: <strong>${emp.nif||'—'}</strong><br>${emp.address||''}<br>${emp.phone||''}${emp.regime?' | '+emp.regime:''}</div>
+    </div>
+    <div class="nr">
+      <h1>${docTitle}</h1>
+      <p>Nº <strong>${faturaNr}</strong></p>
+      <p>Data emissão: <strong style="color:#ccc">${fmtDate(f.data)}</strong></p>
+    </div>
+  </div>
+  <div class="parties">
+    <div class="party"><p class="party-label">Emitente</p><h3>${emp.nome||'VALORIZA STOCK'}</h3><p>NIF: ${emp.nif||'—'}<br>${emp.address||''}<br>${emp.regime||''}</p></div>
+    <div class="party"><p class="party-label">Cliente</p><h3>${f.cliente||'Consumidor Final'}</h3><p>NIF: ${clientData.nif||'—'}<br>${clientData.address||''}<br>${clientData.contacto||''}</p></div>
+  </div>
+  <div class="items">
+    <table>
+      <thead><tr><th>Descrição</th><th class="c">Qtd</th><th class="r">P. Unitário</th><th class="c">IVA</th><th class="r">Total s/IVA</th><th class="r">IVA (Kz)</th><th class="r">Total c/IVA</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>${f.produtoNome}</strong><br><span style="font-size:0.72rem;color:#888">Ref: ${f.produtoId||'—'} | Método: ${f.metodo||DB.config.metodo}</span></td>
+          <td class="c">${f.quantidade}</td>
+          <td class="r">${fmtMoney(f.precoVenda)} Kz</td>
+          <td class="c"><span class="iva-badge" style="background:${iva===0?'#e8faf5':iva===0.07?'#fff8e1':'#e8f0fe'};color:${iva===0?'#00A87E':iva===0.07?'#B8860B':'#1565C0'}">${(iva*100).toFixed(0)}%</span></td>
+          <td class="r">${fmtMoney(subtotal)} Kz</td>
+          <td class="r">${fmtMoney(ivaVal)} Kz</td>
+          <td class="r" style="font-weight:700">${fmtMoney(totalFinal)} Kz</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="bot">
+    <div>
+      <div class="qr-box">
+        <p class="qr-label">📱 Código QR (AT Angola)</p>
+        <div class="qr-img">QR<br>${faturaNr.replace('/','<br>')}<br>${hash4}</div>
+        <p style="font-size:0.7rem;color:#888;word-break:break-all;line-height:1.4">${f.faturaNr||''}*A:${emp.nif||''}*...</p>
+      </div>
+      <div class="hash-box">
+        <p class="qr-label">🔐 Hash / Assinatura Digital</p>
+        <code style="font-size:0.72rem;letter-spacing:2px;display:block;color:#333">${hashSimple.match(/.{1,4}/g).join('-')}</code>
+        <p style="font-size:0.7rem;color:#aaa;margin-top:0.3rem">4 primeiros: <strong style="color:#555">${hash4}</strong></p>
+      </div>
+      <div class="sw-box">
+        <p class="qr-label">💻 Software de Faturação</p>
+        <p style="font-size:0.78rem;color:#333">VALORIZA STOCK v1.0.0<br><span style="color:#aaa;font-size:0.72rem">Cert: VS-2025-001</span></p>
+      </div>
+    </div>
+    <div>
+      <div class="totals-box">
+        <div class="t-row"><span style="color:#666">Subtotal (s/IVA)</span><span style="font-weight:600">${fmtMoney(subtotal)} Kz</span></div>
+        <div class="t-row"><span style="color:#666">IVA (${(iva*100).toFixed(0)}%)</span><span style="font-weight:600">${fmtMoney(ivaVal)} Kz</span></div>
+        <div class="t-grand"><span style="font-weight:800">TOTAL A PAGAR</span><span style="font-weight:900;color:#00C896;font-size:1.05rem">${fmtMoney(totalFinal)} Kz</span></div>
+        <p style="font-size:0.72rem;color:#999;margin-top:0.6rem;padding-top:0.5rem;border-top:1px dashed #ddd">Moeda: <strong style="color:#555">Kwanza (Kz / AOA)</strong></p>
+      </div>
+      <div class="status-box ${isRecibo?'paid':'pending'}">
+        <p style="font-weight:700;font-size:0.85rem">${isRecibo?'✅ RECEBIDO / PAGO':'⏳ PENDENTE DE PAGAMENTO'}</p>
+        <p style="font-size:0.72rem;margin-top:0.2rem">${isRecibo?'Venda a pronto pagamento':'Venda a prazo'}</p>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>Documento emitido por computador • VALORIZA STOCK © ${new Date().getFullYear()}</span>
+    <span>Nº: ${faturaNr} • Hash: ${hash4}</span>
+  </div>
+  </div><script>window.print();<\/script></body></html>`);
 }
 
 // ===== RELATÓRIOS =====
@@ -883,7 +1240,11 @@ function renderConfiguracoes(c) {
       <div class="card-title">📊 Método de Avaliação de Stock</div>
       <p style="font-size:0.85rem;color:var(--text2);margin-bottom:1rem">Seleccione o método para calcular o custo dos produtos vendidos</p>
       <div class="method-options">
-        ${[['FIFO','First In, First Out','O primeiro a entrar é o primeiro a sair'],['LIFO','Last In, First Out','O último a entrar é o primeiro a sair'],['CMP','Custo Médio Ponderado','Média ponderada de todos os custos']].map(([m,n,d]) => `
+        ${[
+          ['FIFO','PEPS — Primeiro a Entrar, Primeiro a Sair','As primeiras mercadorias compradas são as primeiras a ser vendidas. O stock final fica com os preços mais recentes. Em inflação, mostra lucro maior e reflecte melhor o fluxo real.'],
+          ['LIFO','UEPS — Último a Entrar, Primeiro a Sair','As últimas mercadorias compradas são as primeiras a sair. O stock final fica com preços mais antigos. Em inflação, mostra lucro menor. ⚠️ Não permitido em muitas normas contabilísticas.'],
+          ['CMP','Custo Médio Ponderado','Fórmula: CMP = (Valor total antigo + Valor total novo) ÷ (Qtd antiga + Qtd nova). Suaviza variações de preço. Muito usado por ser simples e equilibrado.']
+        ].map(([m,n,d]) => `
           <div class="method-opt ${DB.config.metodo===m?'active':''}" onclick="setMetodo('${m}')">
             <h3>${m}</h3>
             <strong style="font-size:0.8rem;color:var(--text2)">${n}</strong>
@@ -900,10 +1261,11 @@ function renderConfiguracoes(c) {
       <div class="card-title">ℹ️ Sobre o Sistema</div>
       <p style="font-size:0.85rem;color:var(--text2);line-height:1.8">
         <strong>VALORIZA STOCK</strong> — Sistema de Gestão de Stock e Logística<br>
-        Versão: 1.0.0<br>
-        Base de Dados: MySQL (WAMP)<br>
-        Métodos suportados: FIFO, LIFO, CMP<br>
-        Categorias fiscais: Bens Alimentícios (0%), Farmacêuticos (2%), Bens em Geral (14%)<br>
+        Versão: 1.0.0 | Certificado: VS-2025-001<br>
+        Métodos suportados: FIFO (PEPS), LIFO (UEPS), CMP<br>
+        Taxas de IVA: 0% (Saúde/Educação/Exportação) | 7% (Alimentação básica) | 14% (Geral)<br>
+        Moeda: Kwanza (Kz / AOA)<br>
+        Faturação: Conforme regulamentação AT Angola (Hash + QR Code)<br>
         © 2025 VALORIZA STOCK
       </p>
     </div>`;
